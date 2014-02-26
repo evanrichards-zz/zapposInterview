@@ -16,6 +16,10 @@ def find_new_item(range_above_base, list_of_item_descriptions, base_price = 0):
 	# defaulted to zero. It takes the range above the base to start the search
 	# and a list of descriptions of items that have already been added in order
 	# to ensure diversity of products.
+	
+	# This tracks the number of requests we have attempted and changes the 
+	# price based on that.
+	num_requests = 0
 
 	# The vast majority of items on Zappos end in 99 cents, so we will round 
 	# down to closest 99 cent price
@@ -28,7 +32,7 @@ def find_new_item(range_above_base, list_of_item_descriptions, base_price = 0):
 	# next page
 	page_num = 1
 	# As long as our search is still within the range provided, keep looking
-	while(ideal_price > base_price):
+	while(ideal_price > base_price and num_requests <= 5):
 		list_to_return = []
 		# Base URL for call, we are searching for " " and letting the filters
 		# do the work for us.
@@ -45,6 +49,7 @@ def find_new_item(range_above_base, list_of_item_descriptions, base_price = 0):
 		request = base_request + item_limit + facets + sort + api_key
 		# Make the API call, read it, parse it as json into a hash.
 		item = jsonloads(urlopen(request).read())
+		num_requests = num_requests + 1
 		# If the request was empty it doesn't have the key "results" and in some
 		# cases it has results but no count, so we check for that too.
 		if(item.has_key('results') and len(item['results']) != 0):
@@ -63,7 +68,7 @@ def find_new_item(range_above_base, list_of_item_descriptions, base_price = 0):
 		else:
 			# Most items on Zappos end in 99 cents so, we will optimize
 			# by just adjusting the price by whole dollars
-			ideal_price = ideal_price - 1.0
+			ideal_price = ideal_price - (1.0 * num_requests)
 	return 0
 
 # Holds the amount the user wants to spend
@@ -86,14 +91,7 @@ total_items = 0
 
 # Check to see if arguments were passed in through the 
 # 	command line.
-if(len(argv) != 3):
-	# If not, prompt user for them
-	print """	This script makes gift shopping easy for you.
-	Just enter the total amount of money you want to spend
-	on gifts and the number of gifts you want purchased."""
-	price = input('Total amount to spend for gifts: $')*100.0
-	num_items = input('Number of items to purchase: ')
-else:
+if(len(argv) == 3):
 	# Use command line specified values
 	first = int(float(argv[1])*100)
 	second = int(float(argv[2])*100)
@@ -105,6 +103,15 @@ else:
 	else: 
 		price = second
 		num_items = first/100
+print """	This script makes gift shopping easy for you.
+	Just enter the total amount of money you want to spend
+	on gifts and the number of gifts you want purchased."""
+while(num_items <= 0 or price <= 0):
+	# If not, prompt user for them
+	price = input('Total amount to spend for gifts: $')*100.0
+	num_items = input('Number of items to purchase: ')
+	if(num_items <= 0 or price <= 0):
+		print "\nError: Please use only positive numbers.\n\n"
 finished = False
 while(not finished):
 	# Ideally, we want items of all similar pricing, so we
@@ -113,11 +120,15 @@ while(not finished):
 	# Find anywhere from 1-4  new items that fit the budget
 	items_found = find_new_item(ideal_price, list_of_item_descriptions)
 	# Add them to list of items
+	if(items_found == 0):
+		print "Unable to find items in that price range."
+		break
 	for item in items_found:
 		if(total_items != num_items):
 			list_of_items.append(item)
 			# Add its cost to total_spent
-			total_spent = total_spent + int(float(item["price"][1:])*100)
+			item_price = float(item["price"][1:].replace(",",""))
+			total_spent = total_spent + int(item_price*100)
 			total_items = total_items + 1
 			print "Found item number", total_items
 	# Check to see if we can stop
@@ -127,18 +138,20 @@ while(not finished):
 
 # If we are off by at least a dollar from our total cost then
 # try to find an item to replace one we already have with.
-money_left =  price-total_spent
-if(price - total_spent > 100):
-	original_item_price = float(items_found[0]['price'][1:])
-	final_item = find_new_item(money_left/100.0,
-								list_of_item_descriptions, 
-								original_item_price)
-	if(final_item != 0):
-		total_spent = total_spent - original_item_price*100 + \
-				float(final_item[0]['price'][1:])*100
-		list_of_items[0] = final_item[0]
+if(len(list_of_items) == total_items):
+	money_left =  price-total_spent
+	if(price - total_spent > 100):
+		original_item_price = items_found[0]['price'][1:].replace(",","")
+		original_item_price = float(original_item_price)
+		final_item = find_new_item(money_left/100.0,
+									list_of_item_descriptions, 
+									original_item_price)
+		if(final_item != 0):
+			total_spent = total_spent - original_item_price*100 + \
+					float(final_item[0]['price'][1:])*100
+			list_of_items[0] = final_item[0]
 
-print "Spent $", total_spent/100.0, "of $", price/100.0
-for item in list_of_items:
-	print item['brandName'], item['productName'], item['price']
-	print "Buy at: ", item['productUrl']
+	print "Spent $", total_spent/100.0, "of $", price/100.0
+	for item in list_of_items:
+		print item['brandName'], item['productName'], item['price']
+		print "Buy at: ", item['productUrl']
